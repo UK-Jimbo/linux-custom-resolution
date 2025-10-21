@@ -1,43 +1,43 @@
 #!/bin/bash
 
-# Desired resolution
 MODE_NAME="2560x1440_60.00"
 WIDTH=2560
 HEIGHT=1440
 REFRESH=60
 
-# Check if running X11
+# Ensure running X11
 if [ "$XDG_SESSION_TYPE" != "x11" ]; then
-    echo "Error: This script requires an X11 session. Current session: $XDG_SESSION_TYPE"
+    echo "Error: You must be running an X11 session."
     exit 1
 fi
 
-# Check connected display
+# Detect active display
 DISPLAY_NAME=$(xrandr | grep " connected" | awk '{print $1}')
 if [ -z "$DISPLAY_NAME" ]; then
     echo "Error: No connected display found."
     exit 1
 fi
+echo "Active display detected: $DISPLAY_NAME"
 
-# Check if mode already exists
-if xrandr | grep -q "$MODE_NAME"; then
-    echo "Mode $MODE_NAME already exists. Adding to $DISPLAY_NAME..."
-else
-    # Generate modeline
-    MODEL=$(cvt $WIDTH $HEIGHT $REFRESH | grep Modeline | cut -d' ' -f2-)
-    echo "Creating new mode: $MODE_NAME"
-    xrandr --newmode $MODEL
-fi
+# Generate modeline
+MODEL_LINE=$(cvt $WIDTH $HEIGHT $REFRESH | grep Modeline)
+MODEL_NAME_LINE=$(echo $MODEL_LINE | awk '{print $2}')
+MODEL_PARAMS=$(echo $MODEL_LINE | cut -d' ' -f3-)
 
-# Add mode to display
-xrandr --addmode $DISPLAY_NAME $MODE_NAME
+# Remove previous mode if it exists (ignore errors)
+xrandr --delmode $DISPLAY_NAME "$MODEL_NAME_LINE" 2>/dev/null
+xrandr --rmmode "$MODEL_NAME_LINE" 2>/dev/null
 
-# Switch to the new mode
-xrandr --output $DISPLAY_NAME --mode $MODE_NAME
+# Try to create new mode, ignore BadName errors
+xrandr --newmode "$MODEL_NAME_LINE" $MODEL_PARAMS 2>/dev/null || true
+echo "Mode setup attempted: $MODEL_NAME_LINE"
 
-echo "Resolution set to $MODE_NAME on $DISPLAY_NAME"
+# Add mode and apply (errors will generally not happen here)
+xrandr --addmode $DISPLAY_NAME "$MODEL_NAME_LINE" 2>/dev/null || true
+xrandr --output $DISPLAY_NAME --mode "$MODEL_NAME_LINE"
+echo "Resolution set to $MODEL_NAME_LINE on $DISPLAY_NAME"
 
-# Prompt user to configure autostart
+# Optional autostart
 read -p "Do you want to add this resolution to autostart? (y/n): " AUTOSTART_CHOICE
 if [[ "$AUTOSTART_CHOICE" =~ ^[Yy]$ ]]; then
     mkdir -p ~/.config/autostart
@@ -46,11 +46,11 @@ if [[ "$AUTOSTART_CHOICE" =~ ^[Yy]$ ]]; then
     cat <<EOF > "$AUTOSTART_FILE"
 [Desktop Entry]
 Type=Application
-Exec=bash -c "xrandr --newmode '$MODE_NAME' $(cvt $WIDTH $HEIGHT $REFRESH | grep Modeline | cut -d' ' -f2-) ; xrandr --addmode $DISPLAY_NAME '$MODE_NAME' ; xrandr --output $DISPLAY_NAME --mode '$MODE_NAME'"
+Exec=bash -c "xrandr --newmode \"$MODEL_NAME_LINE\" $(cvt $WIDTH $HEIGHT $REFRESH | grep Modeline | cut -d' ' -f3-) ; xrandr --addmode $DISPLAY_NAME \"$MODEL_NAME_LINE\" ; xrandr --output $DISPLAY_NAME --mode \"$MODEL_NAME_LINE\""
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
-Name=Set custom $MODE_NAME resolution
+Name=Set custom $MODEL_NAME_LINE resolution
 Comment=Apply custom resolution on login
 EOF
 
